@@ -1,6 +1,6 @@
 # InSite Weather: Roadmap
 
-See [PRD.md](./PRD.md) for full requirements. Durations are estimates for a small team and will change as the open questions in PRD §10.3 are resolved.
+See [PRD.md](./PRD.md) for requirements and [TECHNICAL_DESIGN.md](./TECHNICAL_DESIGN.md) for the build design. Durations are estimates for a small team and will change as the open questions in PRD §10.3 are resolved.
 
 ## Phase 0: Foundations (1–2 weeks)
 

@@ -7,6 +7,7 @@ Users enter their site location, pollution concerns, phone number and email. The
 ## Documentation
 
 - [Product requirements (PRD)](docs/PRD.md)
+- [Technical design](docs/TECHNICAL_DESIGN.md)
 - [Roadmap](docs/ROADMAP.md)
 
 ## Planned repository layout
