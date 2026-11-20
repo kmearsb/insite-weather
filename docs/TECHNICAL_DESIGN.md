@@ -9,7 +9,7 @@ This document describes how the MVP is built. Decisions marked **Proposed** shou
 **Goals**
 - Never miss an alert because of a system failure. Every stage is idempotent, retried and alarmed.
 - Keep the alert logic (rules, event grouping, alert timing, reply parsing) in pure, well-tested TypeScript, separate from infrastructure.
-- Store every input behind every alert decision, so each compliance record can be reproduced.
+- Keep the inputs behind every alert that was sent, so its compliance record can be reproduced. Inputs to decisions *not* to alert are short-lived (§8.1).
 - Stay cheap at low volume: serverless everything, scale to zero in dev.
 
 **Non-goals (MVP):** on-site station calibration, multi-site accounts, payments, a secondary forecast provider.
@@ -86,7 +86,7 @@ pnpm workspaces + Turborepo, TypeScript project references, Vitest, ESLint + Pre
 apps/web/                Next.js (App Router) on Vercel
 services/                Lambda handlers (thin: parse input → call packages → write output)
   api/  plan-ingest/  fetch-grid/  fetch-observations/  evaluate-site/
-  dispatch-due/  send-message/  twilio-webhooks/  verify-events/  authorizer/
+  dispatch-due/  send-message/  twilio-webhooks/  verify-events/  purge/  authorizer/
 packages/
   core/                  rules, event grouping, alert planning, reply parsing (pure, no I/O)
   weather/               NWS client, unit conversion, interval → hourly expansion
@@ -118,7 +118,7 @@ All requests send `User-Agent: (insiteweather.com, ops@insiteweather.com)` and `
 
 1. **`plan-ingest`** (hourly, EventBridge Scheduler): select distinct `(wfo, x, y)` for active sites and enqueue one message per grid cell to `grid-jobs`. Message deduplication ID: `wfo:x:y:<hour>`.
 2. **`fetch-grid`** (SQS consumer, reserved concurrency 5 to stay polite to NWS): fetch the gridpoint, then
-   - write the raw JSON to `s3://…/raw/gridpoints/{wfo}/{x},{y}/{fetchedAt}.json`;
+   - write the raw JSON to `s3://…/raw/gridpoints/{wfo}/{x},{y}/{fetchedAt}.json` (kept 5 days after the pilot; §8.1);
    - skip the rest if `updateTime` is unchanged since the last pull;
    - normalize: expand each ISO-8601 interval value (e.g. `2026-11-15T18:00:00+00:00/PT3H`) into hourly rows and convert units to SI (m/s, mm, °C, %);
    - insert `forecast_pulls` + `forecast_hourly`; enqueue one `evaluate-jobs` message per site in that cell.
@@ -214,6 +214,7 @@ Quiet hours (20:00–06:00 local) push the due time to 06:00, unless that is les
 - **`send-message`** does `INSERT INTO messages … ON CONFLICT (event_id, type) DO NOTHING RETURNING id`. If no row comes back, the message is already sent and the job is dropped. This is the exactly-once guard. It then renders the template, calls Twilio with a `StatusCallback` URL, and stores the `MessageSid`.
 - Twilio status callbacks update `messages.status`. On `failed` / `undelivered`: retry once after 5 minutes, then send the email copy and raise an ops alarm.
 - Users who have opted out (`users.sms_opted_out_at`) get email only.
+- When the **first** message for an event is sent, `send-message` writes an `alert_opened` compliance entry holding a copy of everything the decision used: the trigger values, the forecast's grid and NWS issue time, the rule version and its definition, and the site's sensitivity. Later alerts, replies and the verified outcome add entries to the same event. A compliance record never depends on raw weather data that will be purged.
 
 Templates live in `packages/messaging/templates.ts`. A unit test renders every template with worst-case values and asserts GSM-7 encoding and ≤ 306 characters.
 
@@ -275,7 +276,9 @@ create table events (
   id uuid primary key, code text unique not null, site_id uuid references sites,
   concern text, window_start timestamptz, window_end timestamptz, peak_tier text,
   status text,               -- forecasted|heads_up_sent|action_sent|acknowledged|no_action|cancelled
-  trigger_values jsonb, rule_version int, forecast_pull_id bigint, revision int default 1,
+  trigger_values jsonb, rule_version int,
+  forecast_pull_id bigint references forecast_pulls on delete set null,  -- raw data is purged (§8.1)
+  revision int default 1,
   outcome text, outcome_values jsonb,   -- observed|not_observed|indeterminate
   created_at timestamptz default now(), updated_at timestamptz default now()
 );
@@ -294,14 +297,36 @@ create table inbound_messages (id uuid primary key, from_e164 text, body text,
 create table responses (id uuid primary key, event_id uuid references events,
   inbound_id uuid references inbound_messages, keyword text, note text, received_at timestamptz);
 
-create table compliance_entries (     -- append-only: no UPDATE/DELETE grants for the app role
+create table compliance_entries (     -- alerted events only; append-only: no UPDATE/DELETE grants for the app role
   id uuid primary key, site_id uuid references sites, event_id uuid references events,
   entry_type text, payload jsonb not null, supersedes_id uuid references compliance_entries,
   created_at timestamptz default now()
 );
+
+create table accuracy_daily (site_id uuid references sites, concern text, local_date date,
+  alerted_observed int, alerted_not_observed int, missed int, indeterminate int,
+  primary key (site_id, concern, local_date));
 ```
 
 Append-only is enforced by database grants: the application role has only `INSERT, SELECT` on `compliance_entries`.
+
+### 8.1 Data retention
+
+The pilot keeps everything, so thresholds can be tuned against a full history. After the pilot, raw inputs are short-lived and only alerted events become permanent records.
+
+| Data | Pilot | After pilot | Mechanism |
+|---|---|---|---|
+| Raw NWS downloads (S3 `raw/`) | Kept | 5 days | S3 lifecycle expiry |
+| `forecast_pulls`, `forecast_hourly` | Kept | 5 days | Nightly `purge` job |
+| `observations_hourly`, `observations_daily` | Kept | 5 days | Nightly `purge` job |
+| Events that never produced a message (and their revisions) | Kept | Deleted 5 days after the window ends | Nightly `purge` job |
+| Alerted events, their messages, replies and compliance entries | Permanent | Permanent | Never purged; append-only |
+| Alert accuracy (hits, misses, false alarms) | Kept | Daily counts per site and concern only | `verify-events` writes `accuracy_daily` before the purge |
+
+- Retention is one setting, `RAW_RETENTION_DAYS`: unset during the pilot (keep everything), `5` afterwards. The `purge` job and the CDK lifecycle rule both read it.
+- Compliance records stand alone. They hold copies of the trigger values, forecast source and issue time, rule definition, and observed outcome values, so nothing in a record points at data that will be purged.
+- `verify-events` runs daily. Outcomes and accuracy counts are therefore recorded within 1–2 days of an event ending, inside the 5-day window.
+- Events that never produced a message are typically risks first seen more than 72 hours out that dropped out of the forecast before the heads-up was due.
 
 ## 9. API
 
@@ -336,8 +361,8 @@ Every handler checks that `site.user_id = token.sub`. Validation uses zod schema
 
 | Stack | Resources |
 |---|---|
-| `DataStack` | VPC (isolated subnets only, for Aurora), Aurora Serverless v2 cluster with Data API enabled, Secrets Manager credentials, S3 buckets (raw, exports; KMS, versioning, lifecycle rules) |
-| `PipelineStack` | Ingest/evaluate/dispatch/verify Lambdas, SQS queues + DLQs, EventBridge Scheduler schedules |
+| `DataStack` | VPC (isolated subnets only, for Aurora), Aurora Serverless v2 cluster with Data API enabled, Secrets Manager credentials, S3 buckets (raw with expiry from `RAW_RETENTION_DAYS`, exports; KMS) |
+| `PipelineStack` | Ingest/evaluate/dispatch/verify/purge Lambdas, SQS queues + DLQs, EventBridge Scheduler schedules |
 | `ApiStack` | HTTP API, authorizer Lambda, api Lambda, Twilio webhook routes, custom domain `api.insiteweather.com` |
 | `MessagingStack` | SES domain identity + DKIM, Twilio credentials in Secrets Manager |
 | `ObservabilityStack` | CloudWatch dashboard, alarms → SNS → ops email/SMS |
@@ -377,7 +402,7 @@ Logs are structured JSON (Powertools for AWS Lambda) with `siteId`, `eventId` an
 |---|---|
 | `packages/core` | Unit tests (target 95%+ coverage) for rules, grouping, reconciliation, `planAlerts` (weekend, quiet hours, late detection), `parseReply` / `matchReply` |
 | `packages/weather` | Fixtures recorded from real NWS responses (several regions and seasons); interval expansion and unit conversion tests |
-| Backtesting | `pnpm backtest --site <lat,lon> --from --to` replays historical observations against the rules and reports events per week, precision and recall. Used to tune thresholds before the pilot |
+| Backtesting | `pnpm backtest --site <lat,lon> --from --to` replays historical weather from NOAA's public archives (not our own store, which keeps raw data only 5 days after the pilot) against the rules and reports events per week, precision and recall. Used to tune thresholds before and during the pilot |
 | Integration | Pipeline Lambdas against a dev stack, with Twilio test credentials and magic numbers |
 | End to end | Playwright onboarding → simulated forecast → alert → reply → record |
 
@@ -397,3 +422,4 @@ Maps to the PRD milestones:
 3. MapTiler vs. Stadia for tiles and geocoding (cost at expected volume).
 4. Use the computed daily summaries only, or cross-check against NOAA climate data (NCEI/ACIS) when it becomes available?
 5. Should evaluation also run immediately when observations change materially (e.g., an unexpected rain gauge reading), or is hourly enough?
+6. The on-site calibration phase needs months of forecast-versus-measured history. With raw data kept for 5 days, that phase will need its own retention rule, for example keeping only the calibration statistics.

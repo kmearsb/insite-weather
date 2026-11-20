@@ -41,7 +41,7 @@ Design principles:
 
 **MVP (must have)**
 1. Web sign-up and log-in, with map confirmation of the site location and phone verification.
-2. Scheduled NWS forecast and observation ingestion, plus a log of whether each condition was forecast and whether it was actually observed.
+2. Scheduled NWS forecast and observation ingestion, plus a check of whether each alerted condition actually occurred (see §6.5 for what is kept).
 3. SMS alerts on the 72 h / 24 h cadence, including the weekend rule.
 4. Two-way SMS: replies stop alerts for the event and create compliance records.
 5. STOP/HELP handling and SMS consent capture.
@@ -99,12 +99,13 @@ Sensitivity setting: **Standard** alerts on high only; **Cautious** alerts on mo
 
 - Each entry holds: site, concern, event window, the triggering forecast values and their source time, alerts sent, the reply (keyword, note, time), and the observed outcome (observed / not observed / indeterminate).
 - Records are append-only (corrections are new entries), stored in UTC and shown in site time.
-- Records are kept at least 5 years†, including after cancellation.
+- Compliance records exist only for events that triggered an alert. They are kept permanently, including after cancellation.
+- Inputs to decisions *not* to alert are temporary. During the pilot all data is kept; after the pilot, raw weather data is kept for 5 days, and alert accuracy is kept only as daily totals.
 - Downloads include a disclaimer that the record does not by itself prove permit compliance.
 
 ### 6.6 Weather data
 
-Pull for each site, at least hourly, covering at least 5 days ahead: wind speed, gust and direction; precipitation amount and probability; max/min temperature; relative humidity. Pull the same parameters as current observations and as **observed daily summaries** from the nearest NWS station. The data drives alerts, post-event verification and the map.
+Pull for each site, at least hourly, covering at least 5 days ahead: wind speed, gust and direction; precipitation amount and probability; max/min temperature; relative humidity. Pull the same parameters as current observations and as **observed daily summaries** from the nearest NWS station. The data drives alerts, post-event verification and the map. The forecast and observed values behind each alert are copied into its compliance record, so raw data can be deleted on schedule (§6.5).
 
 ## 7. Non-functional requirements
 
@@ -132,7 +133,6 @@ Internal alpha (founder's test sites) → closed pilot with 3–10 facilities fr
 4. Log in with username, email, or both?
 5. Should a `NOTNEEDED` reply count as a compliance entry?
 6. One site per account for the MVP?
-7. Record retention period?
 
 ## 11. Milestones†
 
