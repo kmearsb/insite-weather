@@ -110,13 +110,13 @@ Pull for each site, at least hourly, covering at least 5 days ahead: wind speed,
 ## 7. Non-functional requirements
 
 - **Reliability:** a missed alert is the worst possible failure. The pipeline must be idempotent, retried and alarmed, and stale data (> 3 h†) pages the team.
-- **SMS compliance:** sender registration (10DLC or toll-free) before launch; consent stored with timestamp and wording version.
+- **SMS compliance:** a verified toll-free sending number before launch; consent stored with timestamp and wording version.
 - **Security and privacy:** phone and email encrypted at rest; signed webhooks; secrets in a managed store.
 - **Usability:** mobile-first; WCAG 2.1 AA; US units; English only.
 
 ## 8. Technology
 
-TypeScript monorepo on GitHub. Next.js on Vercel, Supabase Auth, AWS via CDK for the backend and database, Modal for Python only where needed. Details are in [TECHNICAL_DESIGN.md](./TECHNICAL_DESIGN.md).
+TypeScript monorepo on GitHub. Next.js on Vercel, Supabase Auth, AWS via CDK for the backend and database, Twilio texting from a verified toll-free number, Modal for Python only where needed. Details are in [TECHNICAL_DESIGN.md](./TECHNICAL_DESIGN.md).
 
 ## 9. Rollout†
 
@@ -124,7 +124,7 @@ Internal alpha (founder's test sites) → closed pilot with 3–10 facilities fr
 
 ## 10. Risks and open questions
 
-**Top risks:** false alarms cause users to opt out; missed alerts damage trust; SMS registration delays launch; the nearest station doesn't represent the site. Mitigations are sensitivity tiers, pipeline alarms, starting registration early, and on-site calibration later.
+**Top risks:** false alarms cause users to opt out; missed alerts damage trust; toll-free verification is rejected or slow; the nearest station doesn't represent the site. Mitigations are sensitivity tiers, pipeline alarms, submitting toll-free verification on day one, and on-site calibration later.
 
 **Open product questions**
 1. Final name and domain (`insiteweather.com`)?
@@ -138,7 +138,7 @@ Internal alpha (founder's test sites) → closed pilot with 3–10 facilities fr
 
 | Phase | Outcome | Est. |
 |---|---|---|
-| 0. Foundations | Repo, CI, infrastructure skeleton; SMS registration started | 1–2 wks |
+| 0. Foundations | Repo, CI, infrastructure skeleton; toll-free verification submitted | 1–2 wks |
 | 1. Weather + rules | Events generated and checked against historical data | 3–4 wks |
 | 2. Messaging | Alert → reply → record works end to end | 2–3 wks |
 | 3. Web app | Onboarding, records, settings | 3–4 wks |

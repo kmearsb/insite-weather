@@ -8,7 +8,7 @@ See [PRD.md](./PRD.md) for requirements and [TECHNICAL_DESIGN.md](./TECHNICAL_DE
 - [ ] AWS CDK app skeleton with dev and prod stages
 - [ ] Vercel project for `apps/web`
 - [ ] Supabase project for authentication
-- [ ] Choose SMS and email providers; **start A2P 10DLC or toll-free sender registration** (long lead time)
+- [ ] Buy the Twilio toll-free number and **submit toll-free verification on day one** (texts can't be sent until it's approved; Twilio reviews within about 3 business days)
 - [ ] Decide database host (AWS Postgres vs. Supabase Postgres) and record it as an ADR
 
 ## Phase 1: Weather data and rules engine (3–4 weeks)

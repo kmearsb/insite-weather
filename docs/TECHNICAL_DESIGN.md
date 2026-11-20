@@ -70,7 +70,7 @@ flowchart LR
 | D1 | Database | **Aurora PostgreSQL Serverless v2 with the RDS Data API.** Lambdas reach the database over HTTPS, so they don't need to run in a VPC (no NAT gateway cost). Dev clusters can scale to 0 ACUs and auto-pause. Prod keeps a minimum above 0 so alert jobs never wait for a resume. | Proposed |
 | D2 | Web → data access | The web app never touches the database directly. It calls the AWS HTTP API with the user's Supabase access token. | Proposed |
 | D3 | Token verification | Use Supabase asymmetric JWT signing keys and verify tokens in a Lambda authorizer with `jose` against the project's JWKS endpoint (`<issuer>/.well-known/jwks.json`). | Proposed |
-| D4 | SMS | **Twilio** Programmable Messaging (a Messaging Service with built-in STOP/HELP opt-out handling), status callbacks, and **Twilio Verify** for the phone code. | Proposed |
+| D4 | SMS | **Twilio** Programmable Messaging (a Messaging Service with built-in STOP/HELP opt-out handling), status callbacks, and **Twilio Verify** for the phone code. Texts go out from one **verified toll-free (8XX) number**. Twilio reviews toll-free verification within about 3 business days, with no brand or campaign registration and no monthly campaign fee. We chose this over 10DLC, whose campaign reviews currently take 1–3 weeks. | Accepted |
 | D5 | Email | **Amazon SES** (domain identity with DKIM). | Proposed |
 | D6 | ORM / migrations | **Drizzle ORM** with its AWS Data API Postgres driver; `drizzle-kit` for migrations. | Proposed |
 | D7 | Maps | **MapLibre GL JS** with a hosted tile and geocoding provider (MapTiler or Stadia; pick on price). | Proposed |
@@ -394,7 +394,7 @@ Logs are structured JSON (Powertools for AWS Lambda) with `siteId`, `eventId` an
 - Aurora and S3 are encrypted at rest with KMS. Raw NWS data holds no personal data; exports are per-user prefixes.
 - Webhooks use Twilio signature validation. The API is rate-limited per IP at API Gateway, with tighter limits on onboarding and verify routes.
 - Phone numbers are stored in E.164 format. Logs mask them to the last 4 digits.
-- Consent records store the timestamp, IP and consent text version for SMS registration and TCPA purposes.
+- Consent records store the timestamp, IP and consent text version for toll-free verification and TCPA purposes.
 
 ## 14. Testing
 
@@ -410,7 +410,7 @@ Logs are structured JSON (Powertools for AWS Lambda) with `siteId`, `eventId` an
 
 Maps to the PRD milestones:
 
-1. **Phase 0:** monorepo scaffold, CI, CDK `DataStack` + `ObservabilityStack`, Supabase + Vercel projects, Twilio toll-free verification or 10DLC registration started.
+1. **Phase 0:** monorepo scaffold, CI, CDK `DataStack` + `ObservabilityStack`, Supabase + Vercel projects, Twilio toll-free number bought and verification submitted on day one (Twilio reviews within about 3 business days; nothing can be texted until it is approved).
 2. **Phase 1:** `packages/weather`, `packages/core` rules + evaluation, ingest pipeline, backtest CLI.
 3. **Phase 2:** `packages/messaging`, dispatch, send, inbound webhooks.
 4. **Phase 3:** web app, API, records export.
@@ -418,8 +418,7 @@ Maps to the PRD milestones:
 ## 16. Open technical questions
 
 1. Prod Aurora minimum capacity (0.5 ACU vs. higher) after measuring load.
-2. Toll-free verification or 10DLC for the sending number?
-3. MapTiler vs. Stadia for tiles and geocoding (cost at expected volume).
-4. Use the computed daily summaries only, or cross-check against NOAA climate data (NCEI/ACIS) when it becomes available?
-5. Should evaluation also run immediately when observations change materially (e.g., an unexpected rain gauge reading), or is hourly enough?
-6. The on-site calibration phase needs months of forecast-versus-measured history. With raw data kept for 5 days, that phase will need its own retention rule, for example keeping only the calibration statistics.
+2. MapTiler vs. Stadia for tiles and geocoding (cost at expected volume).
+3. Use the computed daily summaries only, or cross-check against NOAA climate data (NCEI/ACIS) when it becomes available?
+4. Should evaluation also run immediately when observations change materially (e.g., an unexpected rain gauge reading), or is hourly enough?
+5. The on-site calibration phase needs months of forecast-versus-measured history. With raw data kept for 5 days, that phase will need its own retention rule, for example keeping only the calibration statistics.
