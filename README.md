@@ -9,6 +9,7 @@ Users enter their site location, pollution concerns, phone number and email. The
 - [Product requirements (PRD)](docs/PRD.md)
 - [Technical design](docs/TECHNICAL_DESIGN.md)
 - [Roadmap](docs/ROADMAP.md)
+- [Research: alert thresholds](docs/research/ALERT_THRESHOLDS.md)
 
 ## Planned repository layout
 
