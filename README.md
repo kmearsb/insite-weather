@@ -13,17 +13,12 @@ Users enter their site location, pollution concerns, phone number and email. The
 ## Planned repository layout
 
 ```
-apps/web/        Next.js web app (Vercel)
-services/        AWS Lambda handlers (ingest, evaluate, notify, inbound-sms, verify)
-packages/core/   Rules engine and event state machine
-packages/weather NWS client and weather data utilities
-packages/messaging SMS and email adapters and templates
-packages/db/     Database schema and migrations
-infra/           AWS CDK infrastructure
-python/          Modal functions (only where scientific computing requires Python)
-docs/            PRD, roadmap, architecture decision records
+apps/web/        Next.js website (Vercel), TypeScript
+backend/         Python back end deployed to Modal: rules engine, hourly check, web API, Twilio webhooks
+supabase/        Database migrations, row-level security policies, seed data
+docs/            PRD, technical design, roadmap, architecture decision records
 ```
 
 ## Stack
 
-TypeScript, Next.js on Vercel, Supabase Auth, AWS (CDK, Lambda, EventBridge, SQS, S3, Postgres), Modal for Python jobs when needed.
+Next.js (TypeScript) on Vercel for the website; Python on Modal for the back end; Supabase for the database and authentication; Twilio (verified toll-free number) for texts; Resend for email.

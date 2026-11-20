@@ -116,7 +116,7 @@ Pull for each site, at least hourly, covering at least 5 days ahead: wind speed,
 
 ## 8. Technology
 
-TypeScript monorepo on GitHub. Next.js on Vercel, Supabase Auth, AWS via CDK for the backend and database, Twilio texting from a verified toll-free number, Modal for Python only where needed. Details are in [TECHNICAL_DESIGN.md](./TECHNICAL_DESIGN.md).
+One GitHub repository. A Next.js (TypeScript) website on Vercel; a Python back end on Modal that runs one hourly forecast check and the web API; Supabase for the database and logins; Twilio texting from a verified toll-free number. Details are in [TECHNICAL_DESIGN.md](./TECHNICAL_DESIGN.md).
 
 ## 9. Rollout†
 
@@ -138,7 +138,7 @@ Internal alpha (founder's test sites) → closed pilot with 3–10 facilities fr
 
 | Phase | Outcome | Est. |
 |---|---|---|
-| 0. Foundations | Repo, CI, infrastructure skeleton; toll-free verification submitted | 1–2 wks |
+| 0. Foundations | Repo, CI, Supabase and Modal environments; toll-free verification submitted | 1–2 wks |
 | 1. Weather + rules | Events generated and checked against historical data | 3–4 wks |
 | 2. Messaging | Alert → reply → record works end to end | 2–3 wks |
 | 3. Web app | Onboarding, records, settings | 3–4 wks |

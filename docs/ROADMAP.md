@@ -4,29 +4,31 @@ See [PRD.md](./PRD.md) for requirements and [TECHNICAL_DESIGN.md](./TECHNICAL_DE
 
 ## Phase 0: Foundations (1–2 weeks)
 
-- [ ] Monorepo tooling (pnpm workspaces, Turborepo, TypeScript, lint/format, CI on GitHub Actions)
-- [ ] AWS CDK app skeleton with dev and prod stages
+- [ ] Repo scaffold: `apps/web` (pnpm, TypeScript), `backend` (uv, ruff, mypy, pytest), `supabase` (CLI migrations); CI on GitHub Actions
+- [ ] Supabase dev and prod projects (database + Auth), with row-level security on from the first migration
+- [ ] Modal dev and prod environments, with secrets
 - [ ] Vercel project for `apps/web`
-- [ ] Supabase project for authentication
 - [ ] Buy the Twilio toll-free number and **submit toll-free verification on day one** (texts can't be sent until it's approved; Twilio reviews within about 3 business days)
-- [ ] Decide database host (AWS Postgres vs. Supabase Postgres) and record it as an ADR
+- [ ] Record the v0.2 architecture decisions (Supabase, Modal, hourly check) as ADRs
 
 ## Phase 1: Weather data and rules engine (3–4 weeks)
 
-- [ ] `packages/weather`: NWS client (point lookup, gridpoint forecast, station observations), unit conversion, interval-to-hourly expansion
-- [ ] Ingestion services with per-grid-cell fan-out, raw payload storage in S3, freshness alarms
-- [ ] Observed daily summaries computed from station observations
-- [ ] `packages/core`: data-driven rules, likelihood tiers, event grouping and state machine
+- [ ] `insite/weather`: NWS client (point lookup, conditional gridpoint fetch, station readings), unit conversion, interval-to-hourly expansion
+- [ ] Confirm how far back NWS station readings are available (design needs about 3 days)
+- [ ] `insite/core`: data-driven rules, likelihood tiers, window merging, event reconciliation
+- [ ] `hourly_check` and `check_grid_cell` on Modal (evaluate and record events, no sending yet)
 - [ ] Post-event verification (observed / not observed / indeterminate)
-- [ ] Backtesting harness against historical data for pilot locations
+- [ ] Backtesting CLI against NOAA historical data for pilot locations
 
 ## Phase 2: Messaging (2–3 weeks)
 
-- [ ] `packages/messaging`: provider adapters, templates, segment-length tests
-- [ ] Outbound queue with idempotent sends and delivery receipts
+- [ ] `insite/messaging`: Twilio and Resend adapters, templates, segment-length tests
+- [ ] Alert planning and exactly-once sending inside the hourly check, with delivery receipts
 - [ ] Inbound SMS webhook: keyword parsing, event matching, confirmations
 - [ ] STOP / START / HELP handling and consent records
 - [ ] Email fallback and transactional email
+- [ ] `daily_maintenance`: accuracy roll-up, purge, nightly compliance export
+- [ ] External heartbeat monitor and `system_health` checks
 
 ## Phase 3: Web app (3–4 weeks)
 
@@ -35,6 +37,7 @@ See [PRD.md](./PRD.md) for requirements and [TECHNICAL_DESIGN.md](./TECHNICAL_DE
 - [ ] Records page with PDF and CSV export
 - [ ] Settings: concerns, sensitivity, operating days/hours, pause alerts
 - [ ] Weather map overlays
+- [ ] Modal web API: onboarding, outlook, records, settings
 - [ ] Internal admin view
 
 ## Phase 4: Pilot (6–8 weeks)
