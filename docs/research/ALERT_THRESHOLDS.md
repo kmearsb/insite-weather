@@ -1,7 +1,12 @@
 # Alert thresholds: research and recommendations
 
-**Status:** Research note, Nov 19 2026. Proposes changes to PRD §6.2 and the TDD §6 rules. Nothing is changed in those documents yet.
-**Scope:** (1) Weather triggers for dust, stormwater and track-out. (2) Other pollution events that weather can cause.
+**Status:** Research note, Nov 19 2026, updated Nov 20. Proposes changes to PRD §6.2 and the TDD §6 rules. Nothing is changed in those documents yet.
+**Scope:** (1) Weather triggers for dust and stormwater. (2) Other pollution events that weather can cause.
+
+**Decided Nov 20:**
+
+- Track-out is dropped as a separate concern. Stormwater alerts cover it (§3.2).
+- The relative humidity (RH) gate for dust is removed.
 
 Every number below is marked as either **sourced** (taken from a rule, permit or study, linked at the end) or **judgment** (our proposal, to be backtested). We are not lawyers. A site's own permit and air-district rules always win over these defaults.
 
@@ -12,10 +17,10 @@ Every number below is marked as either **sourced** (taken from a rule, permit or
 | Concern | Moderate | High | Change from PRD §6.2 |
 |---|---|---|---|
 | **Dust** | Sustained ≥ 15 mph **or** gusts ≥ 20 mph | Sustained ≥ 20 mph **or** gusts ≥ 25 mph | Gusts lowered by 5 mph in each tier. **RH gate removed.** |
-| | Both tiers apply only if there was < 0.10 in of rain in the prior 48 h | | Dry-ground gate unchanged |
+| | Both tiers apply only when the **dry-ground clock** says the surface has dried (§2.3) | | Replaces the fixed "< 0.10 in in 48 h" gate |
 | **Stormwater** | ≥ 0.10 in forecast in 24 h, PoP ≥ 50% | ≥ 0.50 in forecast in 24 h, PoP ≥ 50% (this is exactly California's "qualifying precipitation event") | High: PoP 60% → 50%. The 6-hour intensity trigger becomes optional. |
 | **Stormwater, severe** (new; needs per-site data) | — | Forecast 24-h rain ≥ the site's 2-year, 24-hour storm depth | New tier |
-| **Track-out** | ≥ 0.10 in forecast during operating hours or in the 12 h before opening, PoP ≥ 50% | ≥ 0.50 in in 24 h | Adds a high tier. Closes the open question. |
+| ~~Track-out~~ | — | — | **Removed.** Stormwater alerts include "sweep exits, check the tracking pad". |
 
 Optional add-ons, all new:
 
@@ -68,18 +73,86 @@ NWS gridpoint wind comes in km/h. Convert at ingest, as `insite/weather` already
 - **The gate would silence real events.** A coastal site such as Santa Maria can have windy afternoons with RH above 45%. Under the current gate it would get no alert at all on those days.
 - **Recommendation:** remove RH from the trigger. Keep logging it so that calibration can test it later.
 
-### 2.3 Dry-ground gate (judgment)
+### 2.3 Dry-ground clock (replaces the fixed 48 h gate)
 
-- **Keep the gate at < 0.10 in in the prior 48 h.**
-  - AP-42 counts a day with ≥ 0.01 in as a "wet" day, and a peer reviewer of AP-42 noted that the effect of moisture lasts a while after rain.
-  - Unpaved roads also dry quickly.
-  - So 0.10 in over 48 h is a conservative point at which to stand down.
-- **Make the gate use observed rain** from the nearest station, not only forecast rain.
+**Why change (sourced).**
+
+- **A fixed 48 hours is wrong in both directions.**
+  - It is too long in hot, dry or windy weather.
+  - It is too short in cool, cloudy or freezing weather.
+- **AP-42 says unpaved roads dry quickly.** They have a hard, mostly nonporous surface, so they usually dry soon after rain or watering, and traffic speeds this up.
+- **EPA's watering equation ties drying to evaporation.** In Cowherd et al. (1988), the benefit of watering falls as evaporation rate × traffic × time grows, relative to the water applied. In other words, how long a surface stays damp depends on evaporation, not on a fixed number of hours.
+
+**How it works (judgment, built on standard methods).**
+
+1. **Keep one number per grid cell:** surface moisture, in mm.
+2. **Add rain every hour.**
+   - Past hours: observed rain.
+   - Future hours: forecast rain (QPF).
+   - Cap the total at 0.25 in (6.35 mm). Wetting deeper than that doesn't keep the surface damp much longer.
+3. **Subtract drying every hour.**
+   - Drying = K × reference evapotranspiration (ET0).
+   - ET0 comes from the ASCE standardized Penman–Monteith equation. The NWS uses the same equation for its FRET evapotranspiration forecasts.
+   - Inputs: temperature, dewpoint (humidity), wind, and sky cover (for sunshine).
+4. **Count no drying while the temperature is ≤ 32°F.**
+   - Frozen ground holds its moisture.
+   - Snowfall counts as water at about 10:1 (10 in of snow ≈ 1 in of water).
+5. **Allow dust alerts only in hours when the projected moisture is zero.**
+   - Any measurable rain now counts, so the 0.10 in cutoff goes away.
+   - A trace of rain (0.01 in) simply dries off in the examples below: 1–3 h in dry weather, 5–7 h in cool weather.
+
+**This is where RH and temperature come in.**
+
+- **The driver is the vapor pressure deficit:** how much more water vapor the air could hold.
+- **Warm air can hold much more.** At the same 20% RH:
+  - 95°F air has about 8× the drying pull of 35°F air (4.5 kPa vs 0.55 kPa).
+  - So dry air near freezing still dries the ground slowly.
+- **Wind and sun multiply the effect.** This matters because a windy dust day is also a fast-drying day.
+
+**What it gives.** These examples are illustrative weather profiles, not observations. Rain ends at 6 am. Reproduce them with [`drying_examples.py`](drying_examples.py).
+
+| Weather after the rain | 0.10 in of rain | 0.25 in or more |
+|---|---|---|
+| Desert summer, clear (Las Vegas, Jul) | 5 h | 9 h |
+| Santa Maria, dry offshore wind (Nov) | 7 h | 27 h |
+| Santa Maria spring, windy, clear (Apr) | 8 h | 29 h |
+| Santa Maria winter, cloudy (Jan) | 36 h | 106 h |
+| High plains winter, cold, dry, clear (Jan; freezing nights) | 56 h | 132 h |
+| High plains, below freezing all day | stays damp until a thaw | same |
+
+Compared with a fixed 48 hours:
+
+- **In dry weather**, alerts come back 19–43 h sooner.
+- **In cool, cloudy or freezing weather:**
+  - After light rain, the result is close to 48 h (36–56 h).
+  - After a soaking rain, alerts stay off 2½–3½ days longer (106–132 h), or until the ground thaws.
+
+**Cold-weather caveats.**
+
+- **Frozen moist ground resists wind.** In a wind-tunnel study, the erosion rate of desert soil fell by 6–52% once the soil froze.
+- **Freeze–thaw and freeze-drying can make soil more erodible later.** Both break soil aggregates down, so the soil may blow more easily once it thaws and dries. The clock models the drying but not this extra erodibility. Check windy late-winter days in the backtest.
+- **Change the advice below freezing.** If the alert window is at or below 32°F, water can freeze on haul roads. The text should say "use your cold-weather dust control" instead of "water roads". Calcium chloride, for example, lowers the freezing point.
+
+**To calibrate.**
+
+- **Cap (0.25 in).**
+- **K (1.0).** Traffic speeds up drying, so haul roads may need K > 1.
+- **The freezing rule.**
+- **Ways to check:** backtest against nearby PM10 monitors, and use `NOTNEEDED` replies if that keyword ships.
+
+**Design notes for the TDD.**
+
+- **State:** store `surface_moisture_mm` for each grid cell.
+  - Each hourly check updates it with the hour just observed (station temperature, dewpoint, wind and rain; sky cover from the grid).
+  - The check then projects it forward through the forecast.
+  - This is a single derived number, so no extra raw data is kept. It fits the 5-day retention rule.
+- **New gridpoint layers:** `dewpoint` and `skyCover`.
+- **Library:** `refet` (ASCE ET0) for the evapotranspiration calculation.
 
 ### 2.4 Message content
 
 - **High-tier texts should add a line about loose material**, such as "secure tarps and loose material". NWS wind advisories already tell people to secure objects outdoors.
-- **This covers windblown litter and debris** (§5) without a separate concern.
+- **This covers windblown litter and debris** (§4) without a separate concern.
 
 ---
 
@@ -95,7 +168,7 @@ NWS gridpoint wind comes in km/h. Convert at ingest, as `insite/weather` already
 | California Industrial General Permit (IGP): qualifying storm event (QSE) | Any discharge from at least one drainage area, after 48 h with no discharge. Sample 2 QSEs in July–December and 2 in January–June, within 4 h of the discharge starting during operating hours. | "Sampling crew ready" reminder when the moderate tier falls inside operating hours |
 | EPA Multi-Sector General Permit (MSGP) | The 2021 permit expired on Feb 28, 2026 and was administratively continued. As of Aug 2026 its replacement had not been issued. EPA's permit only covers places where EPA issues the permits (e.g. MA, NH, NM, DC, Indian Country). States issue their own, e.g. Texas (effective Aug 14, 2026) and Idaho (effective May 2, 2026). California sites fall under the IGP. | Check each pilot site's permit. Don't hard-code EPA's terms. |
 | EPA 2022 CGP §2.2.12 | A sediment basin may be sized for the runoff of the 2-year, 24-hour storm | Basis for the **severe** tier |
-| EPA SPCC guidance | "Sufficient freeboard" for secondary containment means room for a 25-year, 24-hour storm (guidance, not codified) | Containment-overflow reminder (§5) |
+| EPA SPCC guidance | "Sufficient freeboard" for secondary containment means room for a 25-year, 24-hour storm (guidance, not codified) | Containment-overflow reminder (§4) |
 
 ### 3.2 Recommendation
 
@@ -114,6 +187,10 @@ NWS gridpoint wind comes in km/h. Convert at ingest, as `insite/weather` already
   The profile adds the right inspection or sampling reminder to an alert, for example:
   - "Pre-storm inspection due by Thu 3 pm"
   - "Post-storm inspection due within 24 h; 0.31 in fell at KSMX"
+- **Stormwater alerts also cover track-out.** The action text includes "sweep site exits and check the tracking pad".
+  - Wet weather is when mud is most easily tracked off a site.
+  - Dry-weather track-out is dust, so the dust alert covers it.
+  - The reply stays `SWEPT`.
 - **Caveat for reminders based on rain that has already fallen.** The California CGP's post-event trigger uses the **site's own gauge**. NWS station data can prompt the inspection, but the copy must not say it satisfies the permit.
 
 ### 3.3 Severe tier (judgment; needs site data)
@@ -129,21 +206,7 @@ NWS gridpoint wind comes in km/h. Convert at ingest, as `insite/weather` already
 
 ---
 
-## 4. Track-out
-
-- **Sourced.**
-  - Caltrans-based guidance flags wet weather as the time when mud is most easily tracked off a site.
-  - South Coast AQMD Rule 403 requires track-out to stay under 25 ft and be removed at the end of the day.
-  - Wisconsin requires inspecting tracking pads within 24 h of ≥ 0.5 in of rain.
-- **Proposal.**
-  - Moderate: ≥ 0.10 in forecast during operating hours or in the 12 h before opening, PoP ≥ 50%.
-  - High: ≥ 0.50 in in 24 h.
-  - Action: sweep the exits and check the pad. Reply keyword: `SWEPT`.
-  - Dry-weather track-out (dust) is already covered by the dust rule.
-
----
-
-## 5. Other weather-driven pollution events
+## 4. Other weather-driven pollution events
 
 | Event | Who it matters to | Weather signal | Data | Priority |
 |---|---|---|---|---|
@@ -161,9 +224,10 @@ NWS gridpoint wind comes in km/h. Convert at ingest, as `insite/weather` already
 
 ---
 
-## 6. Data changes
+## 5. Data changes
 
-- **New NWS gridpoint layers**, needed only for the "Next" and "Later" items:
+- **New NWS gridpoint layers for the pilot:** `dewpoint` and `skyCover` (for the dry-ground clock).
+- **New layers needed only for the "Next" and "Later" items:**
   - `hazards`
   - `redFlagThreatIndex`
   - `snowfallAmount`
@@ -179,9 +243,11 @@ NWS gridpoint wind comes in km/h. Convert at ingest, as `insite/weather` already
   - Optional bearing to the nearest neighbors (for odor)
 - **NWS hazards as a cross-check:** if the NWS has an active Blowing Dust Advisory, Wind Advisory or High Wind Warning for the site's zone, raise a dust event to high.
 
-## 7. To validate before the pilot
+## 6. To validate before the pilot
 
-1. Backtest the dust and stormwater tiers against 2–3 years of Santa Maria (KSMX) observations. Count alerts per month per site; the target is ≤ 4 a month.
+1. Backtest the dust and stormwater tiers against 2–3 years of Santa Maria (KSMX) observations.
+   - Count alerts per month per site. The target is ≤ 4 a month.
+   - Compare the dry-ground clock with the old 48-hour gate, and check both against PM10 readings from nearby monitors.
 2. Confirm each pilot site's permit type and the air-district dust rule that applies.
 3. Decide whether "severe" should be a third tier in the product or just a line added to a high alert.
 4. Have an environmental consultant review the defaults (this is still an open question in the PRD).
@@ -200,6 +266,23 @@ NWS gridpoint wind comes in km/h. Convert at ingest, as `insite/weather` already
 - NWS: [glossary, blowing dust](https://forecast.weather.gov/glossary.php?word=blowing), [wind products](https://weather.gov/safety/wind-ww)
 - Research: [Csavina et al. 2014](https://pmc.ncbi.nlm.nih.gov/articles/PMC4072227); [Ravi et al. 2005](https://digitalcommons.usu.edu/crc_research/93); [EGU 2005 wind-tunnel abstract](https://meetings.copernicus.org/www.cosis.net/abstracts/EGU05/00351/EGU05-J-00351-2.pdf)
 
+**Dry-ground clock**
+
+- Watering and evaporation: Cowherd et al. (1988), *Control of Open Fugitive Dust Sources*, EPA-450/3-88-008, Eq. 3-2. [Reproduced in the Bear Lodge road design](https://rareelementresources.com/App_Themes/BearLodgePlanofOperations/HTML/files/assets/basic-html/page247.html).
+- Evapotranspiration:
+  - [NWS FRET (Penman–Monteith) service notice](https://www.weather.gov/media/notification/pdfs/scn16-08fret_cca.pdf)
+  - [NWS FRET inputs (AMS 2014)](https://ams.confex.com/ams/94Annual/webprogram/Handout/Paper238043/FRETams.pdf)
+  - [`refet` (ASCE standardized ET)](https://github.com/WSWUP/refet)
+- Sky cover to sunshine (Kasten & Czeplak 1980): [Ahamed et al. 2019](https://doaj.org/article/271779d6044846f088941a181cf331b6), [CISA WBGT report](https://cisa.sc.edu/Pubs_Presentations_Posters/Reports/2020_Clark%20and%20Konrad_WBGT%20Assessment.pdf)
+- Frozen soil:
+  - [Freezing desert soil, wind-tunnel study](https://library.kab.ac.ug/Record/doaj-art-5910469b92884bbfad6b1f17f4c3ccb9/Description)
+  - [Li et al. 2025](https://agris.fao.org/search/en/records/67dac072677d8be0233bab7d)
+- Freeze–thaw and freeze-drying:
+  - [Bullock et al. 1999](https://www.pnnl.gov/publications/freeze-drying-processes-and-wind-erodibility-clay-loam-soil-southern-alberta)
+  - [Alberta Agriculture](https://www1.agric.gov.ab.ca/$department/deptdocs.nsf/all/sag3375)
+  - [Kučera et al. 2024](https://doaj.org/article/4671fbfb6a1a4ff0bccfd55e82d40d05)
+- Chlorides in cold weather: [MnDOT chloride-free snow and ice control review](https://pcb.illinois.gov/documents/dsweb/Get/Document-98409/Appendix%2027%20-%20Chloride%20Free%20Snow%20and%20Ice%20Control%20Material%20MnDOT.pdf)
+
 **Stormwater**
 
 - [40 CFR 122.21(g)(7)(ii) summary](https://ercweb.com/regulations/show/What-Qualifies-as-a-Storm-Event-for-Stormwater-Sampling)
@@ -209,12 +292,7 @@ NWS gridpoint wind comes in km/h. Convert at ingest, as `insite/weather` already
 - MSGP status: [Dober (Aug 2026)](https://www.dober.com/greenfloc/resources/epa-msgp-2026), [EPA No Action Assurance (Feb 2026)](https://www.epa.gov/system/files/documents/2026-03/oeca-no-action-assurance-memo-msgp.pdf), [J.J. Keller](https://www.jjkeller.com/news/article/EPA-temporarily-extends-2021-MSGP-coverage_id-c2bac09b-ebf7-4f79-ca4f-9c35b13d9835), [TCEQ 2026 MSGP](https://www.tceq.texas.gov/assistance/resources/the-advocate-1/2026-msgp-renewal), [Idaho DEQ](https://www.deq.idaho.gov/?p=83305)
 - [EPA SPCC freeboard guidance](https://epa.gov/oil-spills-prevention-and-preparedness-regulations/what-are-specifications-bulk-storage-secondary)
 - First flush: [Taylor & Francis overview](https://taylorandfrancis.com/knowledge/Engineering_and_technology/Civil%2c_environmental_and_geotechnical_engineering/First_flush)
-
-**Track-out**
-
-- [Rocklin tracking BMP flyer (Caltrans TC-1)](https://www.rocklin.ca.us/sites/main/files/file-attachments/tracking_flyer_0.pdf)
-- [SCAQMD Rule 403 presentation](https://www.aqmd.gov/docs/default-source/compliance/rule-403-dust-control-forms/403-presentation.pdf)
-- [Wisconsin SPS 325 tracking pads](https://docs.legis.wisconsin.gov/code/admin_code/sps/safety_and_buildings_and_environment/320_325/325_a/_1750?up=1)
+- Track-out in wet weather: [Rocklin tracking BMP flyer (Caltrans TC-1)](https://www.rocklin.ca.us/sites/main/files/file-attachments/tracking_flyer_0.pdf)
 
 **Other events**
 
