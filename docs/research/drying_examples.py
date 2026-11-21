@@ -18,7 +18,8 @@ Surface moisture is tracked as a small "bucket":
 - Each hour, K_DRY * ET0 is subtracted from the bucket.
 - No drying is counted while the air temperature is at or below 0 °C (frozen ground).
 - Dust alerts are allowed again once the bucket is empty, but never sooner than
-  FLOOR_H after a storm of FLOOR_MIN_IN or more.
+  FLOOR_H after FLOOR_MIN_IN or more of rain in any 24 h, or MIN_HOLD_H after
+  any lighter measurable rain. The holds count from the last hour of rain.
 
 These are illustrative profiles, not observations. Requires: pip install refet numpy
 """
@@ -30,8 +31,9 @@ from refet import calcs
 
 CAP_MM = 6.35   # 0.25 in: deeper wetting doesn't keep the surface damp any longer (judgment)
 K_DRY = 1.0     # bare, trafficked surface vs. the grass reference (judgment; calibrate)
-FLOOR_H = 24          # minimum hold after a storm of >= FLOOR_MIN_IN, whatever the clock says (product rule)
-FLOOR_MIN_IN = 0.10   # sprinkles below this use the clock alone
+FLOOR_H = 24          # hold after >= FLOOR_MIN_IN of rain in any 24 h, whatever the clock says (product rule)
+FLOOR_MIN_IN = 0.10   # in any 24 h; lighter rain gets the shorter MIN_HOLD_H (decided Nov 20)
+MIN_HOLD_H = 6        # hold after any measurable rain (>= 0.01 in), whatever the clock says (decided Nov 20)
 
 
 def et0_hour(t_c, tdew_c, wind_ms, sky, lat, lon, elev, doy, utc_hour):
@@ -84,15 +86,16 @@ SCENARIOS = [
 ]
 
 def hours_until_alerts_allowed(sc, rain_in):
-    """The later of the drying clock and the floor (the floor applies only to storms >= FLOOR_MIN_IN)."""
+    """The later of the drying clock and the hold (24 h for >= 0.10 in, 6 h for lighter rain)."""
     clock = hours_to_dry(sc, rain_in)
     if clock is None:
         return None
-    return max(clock, FLOOR_H) if rain_in >= FLOOR_MIN_IN else clock
+    return max(clock, FLOOR_H if rain_in >= FLOOR_MIN_IN else MIN_HOLD_H)
 
 
 if __name__ == "__main__":
-    print(f"Rain ends 06:00 local. Cap {CAP_MM} mm, K {K_DRY}, floor {FLOOR_H} h for storms >= {FLOOR_MIN_IN} in.")
+    print(f"Rain ends 06:00 local. Cap {CAP_MM} mm, K {K_DRY}. Holds: {FLOOR_H} h after >= {FLOOR_MIN_IN} in, "
+          f"{MIN_HOLD_H} h after lighter rain.")
     print("Hours until dust alerts are allowed again; the drying clock alone is in brackets.\n")
     fmt = lambda x: f"{x} h" if x is not None else "frozen"
     print(f"{'Scenario':52} {'0.01 in':>8} {'0.10 in':>14} {'0.25 in+':>14}")
