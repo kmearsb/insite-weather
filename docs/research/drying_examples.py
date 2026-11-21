@@ -17,7 +17,8 @@ Surface moisture is tracked as a small "bucket":
 - Rain is added to the bucket, which is capped at CAP_MM.
 - Each hour, K_DRY * ET0 is subtracted from the bucket.
 - No drying is counted while the air temperature is at or below 0 °C (frozen ground).
-- Dust alerts are allowed again once the bucket is empty.
+- Dust alerts are allowed again once the bucket is empty, but never sooner than
+  FLOOR_H after a storm of FLOOR_MIN_IN or more.
 
 These are illustrative profiles, not observations. Requires: pip install refet numpy
 """
@@ -29,6 +30,8 @@ from refet import calcs
 
 CAP_MM = 6.35   # 0.25 in: deeper wetting doesn't keep the surface damp any longer (judgment)
 K_DRY = 1.0     # bare, trafficked surface vs. the grass reference (judgment; calibrate)
+FLOOR_H = 24          # minimum hold after a storm of >= FLOOR_MIN_IN, whatever the clock says (product rule)
+FLOOR_MIN_IN = 0.10   # sprinkles below this use the clock alone
 
 
 def et0_hour(t_c, tdew_c, wind_ms, sky, lat, lon, elev, doy, utc_hour):
@@ -80,10 +83,21 @@ SCENARIOS = [
          doy=15, utc_offset=7, tmax_f=28, tmin_f=12, tdew_f=8, wind_mph=10, sky=0.1),
 ]
 
+def hours_until_alerts_allowed(sc, rain_in):
+    """The later of the drying clock and the floor (the floor applies only to storms >= FLOOR_MIN_IN)."""
+    clock = hours_to_dry(sc, rain_in)
+    if clock is None:
+        return None
+    return max(clock, FLOOR_H) if rain_in >= FLOOR_MIN_IN else clock
+
+
 if __name__ == "__main__":
-    print(f"Rain ends 06:00 local. Cap {CAP_MM} mm, K {K_DRY}. Hours until dust alerts are allowed again.\n")
-    print(f"{'Scenario':52} {'0.10 in':>8} {'0.25 in+':>9}")
+    print(f"Rain ends 06:00 local. Cap {CAP_MM} mm, K {K_DRY}, floor {FLOOR_H} h for storms >= {FLOOR_MIN_IN} in.")
+    print("Hours until dust alerts are allowed again; the drying clock alone is in brackets.\n")
+    fmt = lambda x: f"{x} h" if x is not None else "frozen"
+    print(f"{'Scenario':52} {'0.01 in':>8} {'0.10 in':>14} {'0.25 in+':>14}")
     for sc in SCENARIOS:
-        a, b = hours_to_dry(sc, 0.10), hours_to_dry(sc, 0.25)
-        fmt = lambda x: f"{x} h" if x is not None else "frozen"
-        print(f"{sc['name']:52} {fmt(a):>8} {fmt(b):>9}")
+        cells = [fmt(hours_until_alerts_allowed(sc, 0.01))]
+        for r in (0.10, 0.25):
+            cells.append(f"{fmt(hours_until_alerts_allowed(sc, r))} ({fmt(hours_to_dry(sc, r))})")
+        print(f"{sc['name']:52} {cells[0]:>8} {cells[1]:>14} {cells[2]:>14}")

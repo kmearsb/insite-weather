@@ -7,6 +7,7 @@
 
 - Track-out is dropped as a separate concern. Stormwater alerts cover it (§3.2).
 - The relative humidity (RH) gate for dust is removed.
+- No dust alert within 24 h of a storm of ≥ 0.10 in. This floor applies on top of the dry-ground clock (§2.3).
 
 Every number below is marked as either **sourced** (taken from a rule, permit or study, linked at the end) or **judgment** (our proposal, to be backtested). We are not lawyers. A site's own permit and air-district rules always win over these defaults.
 
@@ -17,7 +18,7 @@ Every number below is marked as either **sourced** (taken from a rule, permit or
 | Concern | Moderate | High | Change from PRD §6.2 |
 |---|---|---|---|
 | **Dust** | Sustained ≥ 15 mph **or** gusts ≥ 20 mph | Sustained ≥ 20 mph **or** gusts ≥ 25 mph | Gusts lowered by 5 mph in each tier. **RH gate removed.** |
-| | Both tiers apply only when the **dry-ground clock** says the surface has dried (§2.3) | | Replaces the fixed "< 0.10 in in 48 h" gate |
+| | Both tiers apply only when the **dry-ground clock** says the surface has dried, and never within 24 h of a storm of ≥ 0.10 in (§2.3) | | Replaces the fixed "< 0.10 in in 48 h" gate |
 | **Stormwater** | ≥ 0.10 in forecast in 24 h, PoP ≥ 50% | ≥ 0.50 in forecast in 24 h, PoP ≥ 50% (this is exactly California's "qualifying precipitation event") | High: PoP 60% → 50%. The 6-hour intensity trigger becomes optional. |
 | **Stormwater, severe** (new; needs per-site data) | — | Forecast 24-h rain ≥ the site's 2-year, 24-hour storm depth | New tier |
 | ~~Track-out~~ | — | — | **Removed.** Stormwater alerts include "sweep exits, check the tracking pad". |
@@ -97,9 +98,16 @@ NWS gridpoint wind comes in km/h. Convert at ingest, as `insite/weather` already
 4. **Count no drying while the temperature is ≤ 32°F.**
    - Frozen ground holds its moisture.
    - Snowfall counts as water at about 10:1 (10 in of snow ≈ 1 in of water).
-5. **Allow dust alerts only in hours when the projected moisture is zero.**
-   - Any measurable rain now counts, so the 0.10 in cutoff goes away.
-   - A trace of rain (0.01 in) simply dries off in the examples below: 1–3 h in dry weather, 5–7 h in cool weather.
+5. **Allow dust alerts only in hours when the projected moisture is zero.** Any measurable rain counts.
+6. **Set a floor (decided Nov 20): no dust alert within 24 h of a storm of 0.10 in or more.**
+   - The 24 h runs from the last hour of rain. This applies to observed and forecast rain alike.
+   - The clock can make the wait longer, never shorter.
+   - **This is a product rule, not physics.** EPA's paved-road revision assumed rain's effect usually doesn't last a full day.
+   - **Reasons for the floor:**
+     - An alert a few hours after a real rain looks wrong to operators.
+     - Forecast rain timing can be off by several hours.
+     - The floor holds off alerts on the days right after rain, when they matter least.
+   - **Sprinkles under 0.10 in use the clock alone.** A day-long hold after a few drops could miss real dust. A desert thunderstorm, for example, can bring strong wind and very little rain.
 
 **This is where RH and temperature come in.**
 
@@ -109,20 +117,20 @@ NWS gridpoint wind comes in km/h. Convert at ingest, as `insite/weather` already
   - So dry air near freezing still dries the ground slowly.
 - **Wind and sun multiply the effect.** This matters because a windy dust day is also a fast-drying day.
 
-**What it gives.** These examples are illustrative weather profiles, not observations. Rain ends at 6 am. Reproduce them with [`drying_examples.py`](drying_examples.py).
+**What it gives.** These examples are illustrative weather profiles, not observations. Rain ends at 6 am. Each cell shows the hours until dust alerts are allowed, with the clock alone in brackets. Reproduce them with [`drying_examples.py`](drying_examples.py).
 
-| Weather after the rain | 0.10 in of rain | 0.25 in or more |
-|---|---|---|
-| Desert summer, clear (Las Vegas, Jul) | 5 h | 9 h |
-| Santa Maria, dry offshore wind (Nov) | 7 h | 27 h |
-| Santa Maria spring, windy, clear (Apr) | 8 h | 29 h |
-| Santa Maria winter, cloudy (Jan) | 36 h | 106 h |
-| High plains winter, cold, dry, clear (Jan; freezing nights) | 56 h | 132 h |
-| High plains, below freezing all day | stays damp until a thaw | same |
+| Weather after the rain | 0.01 in (sprinkle) | 0.10 in | 0.25 in or more |
+|---|---|---|---|
+| Desert summer, clear (Las Vegas, Jul) | 1 h | **24 h** (5 h) | **24 h** (9 h) |
+| Santa Maria, dry offshore wind (Nov) | 2 h | **24 h** (7 h) | 27 h |
+| Santa Maria spring, windy, clear (Apr) | 3 h | **24 h** (8 h) | 29 h |
+| Santa Maria winter, cloudy (Jan) | 5 h | 36 h | 106 h |
+| High plains winter, cold, dry, clear (Jan; freezing nights) | 7 h | 56 h | 132 h |
+| High plains, below freezing all day | stays damp until a thaw | same | same |
 
 Compared with a fixed 48 hours:
 
-- **In dry weather**, alerts come back 19–43 h sooner.
+- **In dry weather**, alerts come back about a day sooner, at 24–29 h.
 - **In cool, cloudy or freezing weather:**
   - After light rain, the result is close to 48 h (36–56 h).
   - After a soaking rain, alerts stay off 2½–3½ days longer (106–132 h), or until the ground thaws.
@@ -135,6 +143,7 @@ Compared with a fixed 48 hours:
 
 **To calibrate.**
 
+- **Floor (24 h, starts at storms ≥ 0.10 in).**
 - **Cap (0.25 in).**
 - **K (1.0).** Traffic speeds up drying, so haul roads may need K > 1.
 - **The freezing rule.**
@@ -268,6 +277,7 @@ Compared with a fixed 48 hours:
 
 **Dry-ground clock**
 
+- Rain's effect usually lasts less than a day (paved roads): [MRI memo to EPA, 2001](https://gaftp.epa.gov/ap42/ch13/s021/references/ref_26c13s0201_2011.pdf)
 - Watering and evaporation: Cowherd et al. (1988), *Control of Open Fugitive Dust Sources*, EPA-450/3-88-008, Eq. 3-2. [Reproduced in the Bear Lodge road design](https://rareelementresources.com/App_Themes/BearLodgePlanofOperations/HTML/files/assets/basic-html/page247.html).
 - Evapotranspiration:
   - [NWS FRET (Penman–Monteith) service notice](https://www.weather.gov/media/notification/pdfs/scn16-08fret_cca.pdf)
